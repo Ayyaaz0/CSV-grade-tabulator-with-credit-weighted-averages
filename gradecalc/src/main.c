@@ -173,6 +173,82 @@ static void print_module_stats(const Module *m) {
     printf("\n");
 }
 
+typedef struct {
+    double earned_points;     // points earned so far toward module final (0..100)
+    double known_weight;      // total marked weight (0..100)
+    double remaining_weight;  // 100 - known_weight
+} ModuleProgress;
+
+static ModuleProgress module_progress(const Module *m) {
+    ModuleProgress p = {0};
+
+    for (size_t i = 0; i < m->component_count; i++) {
+        const Component *c = &m->components[i];
+        if (c->mark >= 0.0) {
+            p.earned_points += (c->mark * c->weight) / 100.0; // contributes to final mark
+            p.known_weight  += c->weight;
+        }
+    }
+
+    p.remaining_weight = 100.0 - p.known_weight;
+    return p;
+}
+
+static void print_overall_summary(const ModuleList *modules, double target_overall) {
+    double total_credits = 0.0;
+
+    // Credit-weighted "points" bookkeeping:
+    // A = achieved credit-points so far (credits * earned_points)
+    // B = remaining credit-weight still to be graded (credits * remaining_weight)
+    double A = 0.0;
+    double B = 0.0;
+
+    for (size_t i = 0; i < modules->count; i++) {
+        const Module *m = &modules->items[i];
+        ModuleProgress p = module_progress(m);
+
+        total_credits += m->credits;
+        A += m->credits * p.earned_points;        // earned_points is already out of 100
+        B += m->credits * p.remaining_weight;     // remaining_weight is out of 100
+    }
+
+    printf("OVERALL (credit-weighted)\n");
+    printf("  Total credits: %.0f\n", total_credits);
+
+    // current overall % on completed work (credit-weighted), if any marks exist:
+    double known_credit_weight = 0.0;
+    for (size_t i = 0; i < modules->count; i++) {
+        const Module *m = &modules->items[i];
+        ModuleProgress p = module_progress(m);
+        known_credit_weight += m->credits * p.known_weight;
+    }
+
+    if (known_credit_weight > 0.0) {
+        double current_completed_avg = (A / known_credit_weight) * 100.0;
+        printf("  Current average on marked work: %.2f%%\n", current_completed_avg);
+    } else {
+        printf("  Current average on marked work: (no marks yet)\n");
+    }
+
+    // Required average on remaining work to hit target_overall:
+    // Need total credit-points T = target_overall * total_credits * 100
+    // because module marks are /100 but A is credits * points(out of 100).
+    double T = target_overall * total_credits * 100.0;
+
+    if (B <= 0.0) {
+        // Nothing left to influence: final overall is A / (total_credits*100) * 100
+        double final_overall = (A / (total_credits * 100.0)) * 100.0;
+        printf("  No remaining assessments. Final overall: %.2f%%\n", final_overall);
+        return;
+    }
+
+    double needed_remaining_avg = ((T - A) / B) * 100.0;
+    printf("  Needed average on remaining work to reach %.0f%% overall: %.2f%%\n",
+           target_overall * 100.0, needed_remaining_avg);
+    printf("\n");
+}
+
+
 int main(void) {
     ModuleList modules;
     module_list_init(&modules);
@@ -187,6 +263,9 @@ int main(void) {
         print_module_stats(&modules.items[i]);
     }
 
+    print_overall_summary(&modules, 0.70);
+
     module_list_free(&modules);
     return 0;
 }
+

@@ -5,7 +5,8 @@
 
 typedef struct {
     char name[128];
-    double weight;   // percent, e.g. 25.0
+    double weight;   // percent (e.g. 25.0)
+    double mark;     // 0–100, or -1.0 if unknown
 } Component;
 
 typedef struct {
@@ -30,8 +31,7 @@ void module_list_free(ModuleList *list);
 int  module_list_push(ModuleList *list, const Module *m);
 
 Module *module_list_find_by_id(ModuleList *list, int id);
-
-// Add a component to a module
+Component *module_find_component_by_name(Module *m, const char *name);
 int module_add_component(Module *m, const Component *c);
 
 #endif

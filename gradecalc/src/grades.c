@@ -35,38 +35,38 @@ void module_list_free(ModuleList *list) {
 int module_list_push(ModuleList *list, const Module *m) {
     if (list->count == list->capacity) {
         size_t newcap = (list->capacity == 0) ? 8 : list->capacity * 2;
-        Module *newitems = (Module *)realloc(list->items, newcap * sizeof(Module));
+        Module *newitems = realloc(list->items, newcap * sizeof(Module));
         if (!newitems) return 0;
         list->items = newitems;
         list->capacity = newcap;
     }
-
-    list->items[list->count] = *m;       // struct copy
-    module_init(&list->items[list->count]); // ensure components start empty
+    list->items[list->count] = *m;
+    module_init(&list->items[list->count]);
     list->count++;
     return 1;
 }
 
 Module *module_list_find_by_id(ModuleList *list, int id) {
-    if (!list) return NULL;
-    for (size_t i = 0; i < list->count; i++) {
+    for (size_t i = 0; i < list->count; i++)
         if (list->items[i].id == id) return &list->items[i];
-    }
+    return NULL;
+}
+
+Component *module_find_component_by_name(Module *m, const char *name) {
+    for (size_t i = 0; i < m->component_count; i++)
+        if (strcmp(m->components[i].name, name) == 0)
+            return &m->components[i];
     return NULL;
 }
 
 int module_add_component(Module *m, const Component *c) {
-    if (!m || !c) return 0;
-
     if (m->component_count == m->component_capacity) {
         size_t newcap = (m->component_capacity == 0) ? 4 : m->component_capacity * 2;
-        Component *newitems = (Component *)realloc(m->components, newcap * sizeof(Component));
+        Component *newitems = realloc(m->components, newcap * sizeof(Component));
         if (!newitems) return 0;
         m->components = newitems;
         m->component_capacity = newcap;
     }
-
-    m->components[m->component_count++] = *c; // struct copy
+    m->components[m->component_count++] = *c;
     return 1;
 }
-

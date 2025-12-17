@@ -248,13 +248,48 @@ static void print_overall_summary(const ModuleList *modules, double target_overa
     printf("\n");
 }
 
+static int save_marks_csv(const ModuleList *modules, const char *path) {
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Failed to write %s\n", path);
+        return 0;
+    }
+
+    fprintf(fp, "module_id,component_name,mark\n");
+
+    for (size_t i = 0; i < modules->count; i++) {
+        const Module *m = &modules->items[i];
+        for (size_t j = 0; j < m->component_count; j++) {
+            const Component *c = &m->components[j];
+
+            // If component names might contain commas, you’d quote them.
+            // For your current names, commas are unlikely, so we keep it simple.
+            if (c->mark >= 0.0) {
+                fprintf(fp, "%d,%s,%.2f\n", m->id, c->name, c->mark);
+            } else {
+                fprintf(fp, "%d,%s,\n", m->id, c->name);
+            }
+        }
+    }
+
+    fclose(fp);
+    return 1;
+}
 
 int main(void) {
     ModuleList modules;
     module_list_init(&modules);
 
-    load_modules(&modules, "data/modules.csv");
-    load_components(&modules, "data/components.csv");
+    if (!load_modules(&modules, "data/modules.csv")) {
+        module_list_free(&modules);
+        return 1;
+    }
+
+    if (!load_components(&modules, "data/components.csv")) {
+        module_list_free(&modules);
+        return 1;
+    }
+
     load_marks(&modules, "data/marks.csv");
 
     printf("Loaded %zu modules\n\n", modules.count);
@@ -265,7 +300,12 @@ int main(void) {
 
     print_overall_summary(&modules, 0.70);
 
+    if (!save_marks_csv(&modules, "data/marks.csv")) {
+        fprintf(stderr, "Warning: could not save data/marks.csv\n");
+        module_list_free(&modules);
+        return 1;
+    }
+
     module_list_free(&modules);
     return 0;
 }
-

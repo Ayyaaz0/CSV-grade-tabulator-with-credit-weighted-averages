@@ -1,5 +1,19 @@
 module_id,component_name,mark
-1,Semester 1 test,68
-1,Labs assignment,72
+1,Semester 1 test,68.00
+1,Labs assignment,72.00
 1,Coursework PCB,
-2,Assignments,60
+2,Assignments,60.00
+2,Group project,
+2,May test,
+3,Semester 1 test,
+3,Matlab coursework,
+3,May exam,
+4,Semester 1 test,
+4,Semester 2 test,
+4,May exam,
+5,Semester 1 test,
+5,Mini project 1,
+5,Final project,
+6,Continuous lab assessment,
+6,Semester 1 test,
+6,Mini project,

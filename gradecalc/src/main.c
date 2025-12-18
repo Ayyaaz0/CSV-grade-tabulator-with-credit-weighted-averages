@@ -144,7 +144,10 @@ static int load_marks(ModuleList *modules, const char *path) {
 }
 
 static void print_module_stats(const Module *m) {
-    double S = 0.0, W = 0.0;
+    const double TARGET = 70.0;
+    const double ASSUME_OTHER = 70.0; // assumption for "other remaining components"
+
+    double S = 0.0, W = 0.0; // S = Σ(mark * weight), W = Σ(weight) for known marks
 
     for (size_t i = 0; i < m->component_count; i++) {
         const Component *c = &m->components[i];
@@ -154,21 +157,57 @@ static void print_module_stats(const Module *m) {
         }
     }
 
-    printf("%s (%s)\n", m->title, m->code);
-
+    printf("%s (%d credits)\n", m->title, m->credits);
 
     if (W > 0.0) {
-        printf("  Current average: %.2f%%\n", S / W);
+        printf("  Current average (marked work): %.2f%%\n", S / W);
     } else {
-        printf("  No marks yet\n");
+        printf("  Current average (marked work): (no marks yet)\n");
     }
 
-    double R = 100.0 - W;
+    double R = 100.0 - W; // remaining weight
     if (R > 0.0) {
-        printf("  Needed on remaining for 70%%: %.2f%%\n",
-               (70.0 * 100.0 - S) / R);
+        double needed_avg = (TARGET * 100.0 - S) / R;
+        printf("  Needed average on remaining to reach %.0f%%: %.2f%%\n", TARGET, needed_avg);
     } else {
-        printf("  Final mark: %.2f%%\n", S / 100.0);
+        printf("  Final module mark: %.2f%%\n", S / 100.0);
+        printf("\n");
+        return;
+    }
+
+    // Per-component requirement (given assumption about other remaining components)
+    printf("  Remaining assessments (needed if others score %.0f%%):\n", ASSUME_OTHER);
+
+    int any_remaining = 0;
+    for (size_t i = 0; i < m->component_count; i++) {
+        const Component *c = &m->components[i];
+        if (c->mark >= 0.0) continue; // already known
+
+        any_remaining = 1;
+
+        double other_weight = R - c->weight;
+        if (c->weight <= 0.0) {
+            printf("    - %s (%.2f%%): cannot compute (weight is zero)\n", c->name, c->weight);
+            continue;
+        }
+
+        // Need: S + (ASSUME_OTHER * other_weight) + (x * c->weight) >= TARGET*100
+        double required = (TARGET * 100.0 - S - ASSUME_OTHER * other_weight) / c->weight;
+
+        // Display nicely with feasibility info
+        if (required > 100.0) {
+            printf("    - %s (%.2f%%): need %.2f%% (impossible > 100%%)\n",
+                   c->name, c->weight, required);
+        } else if (required < 0.0) {
+            printf("    - %s (%.2f%%): need %.2f%% (already safe; 0%% would still do)\n",
+                   c->name, c->weight, required);
+        } else {
+            printf("    - %s (%.2f%%): need %.2f%%\n", c->name, c->weight, required);
+        }
+    }
+
+    if (!any_remaining) {
+        printf("    (none)\n");
     }
 
     printf("\n");

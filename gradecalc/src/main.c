@@ -154,7 +154,8 @@ static void print_module_stats(const Module *m) {
         }
     }
 
-    printf("%s (%d credits)\n", m->code, m->credits);
+    printf("%s (%s)\n", m->title, m->code);
+
 
     if (W > 0.0) {
         printf("  Current average: %.2f%%\n", S / W);

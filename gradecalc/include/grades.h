@@ -4,10 +4,15 @@
 #include <stddef.h>
 
 typedef struct {
-    char name[128];
-    double weight;   // percent (e.g. 25.0)
-    double mark;     // 0–100, or -1.0 if unknown
+    char name[64];
+    double weight;
+    double mark;   // -1 if unknown
+
+    // Best-of-N grouping
+    int group_id;  // 0 = not grouped; >0 = belongs to a group
+    int best_of;   // 0 = normal; >0 = count only best N in the group
 } Component;
+
 
 typedef struct {
     int id;

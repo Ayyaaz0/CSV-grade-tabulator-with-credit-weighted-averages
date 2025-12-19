@@ -1,19 +1,34 @@
-module_id,component_name,weight
-1,Semester 1 test,25
-1,Labs assignment,25
-1,Coursework PCB,50
-2,Assignments,25
-2,Group project,35
-2,May test,40
-3,Semester 1 test,30
-3,Matlab coursework,30
-3,May exam,40
-4,Semester 1 test,20
-4,Semester 2 test,20
-4,May exam,60
-5,Semester 1 test,20
-5,Mini project 1,30
-5,Final project,50
-6,Continuous lab assessment,25
-6,Semester 1 test,25
-6,Mini project,50
+module_id,component_name,weight,group_id,best_of
+1,Semester 1 test,25,,
+1,Labs assignment,25,,
+1,Coursework PCB,50,,
+2,OA1,1.5625,,
+2,OA2,1.5625,,
+2,OA3,1.5625,,
+2,OA4,1.5625,,
+2,OA5,1.5625,,
+2,OA6,1.5625,,
+2,OA7,1.5625,,
+2,OA8,1.5625,,
+2,OA9,1.5625,,
+2,OA10,1.5625,,
+2,OA11,1.5625,,
+2,OA12,1.5625,,
+2,OA13,1.5625,,
+2,OA14,1.5625,,
+2,OA15,1.5625,,
+2,OA16,1.5625,,
+2,Group project,35,,
+2,May test,40,,
+3,Semester 1 test,30,,
+3,Matlab coursework,30,,
+3,May exam,40,,
+4,Semester 1 test,20,,
+4,Semester 2 test,20,,
+4,May exam,60,,
+5,Semester 1 test,20,,
+5,Mini project 1,30,,
+5,Final project,50,,
+6,Continuous lab assessment,25,,
+6,Semester 1 test,25,,
+6,Mini project,50,,

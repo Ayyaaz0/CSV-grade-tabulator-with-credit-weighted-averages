@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 #include "csv.h"
 #include "grades.h"
@@ -12,14 +11,6 @@ typedef struct {
     double target;        // e.g. 70.0
     double assume_other;  // e.g. 70.0
 } Config;
-
-/* -------------------- Small helper types -------------------- */
-
-typedef struct {
-    double earned_points;     // points earned so far toward module final (0..100)
-    double known_weight;      // total marked weight (0..100)
-    double remaining_weight;  // 100 - known_weight
-} ModuleProgress;
 
 /* -------------------- Parsing helpers -------------------- */
 
@@ -89,6 +80,15 @@ static int load_modules(ModuleList *modules, const char *path) {
     return 1;
 }
 
+/*
+components.csv supported formats:
+
+OLD:
+  module_id,component_name,weight
+
+NEW (optional, for best-of-N grouping):
+  module_id,component_name,weight,group_id,best_of
+*/
 static int load_components(ModuleList *modules, const char *path) {
     CsvFile *cf = csv_open(path);
     if (!cf) {
@@ -130,7 +130,16 @@ static int load_components(ModuleList *modules, const char *path) {
         Component c = (Component){0};
         snprintf(c.name, sizeof c.name, "%s", row.fields[1]);
         c.weight = weight;
-        c.mark = -1.0; // unknown by default
+        c.mark = -1.0;
+
+        // Best-of-N defaults (requires Component to have these fields)
+        c.group_id = 0;
+        c.best_of  = 0;
+
+        if (row.count >= 5) {
+            (void)parse_int(row.fields[3], &c.group_id);
+            (void)parse_int(row.fields[4], &c.best_of);
+        }
 
         if (!module_add_component(m, &c)) {
             fprintf(stderr, "Out of memory adding component\n");
@@ -146,13 +155,10 @@ static int load_components(ModuleList *modules, const char *path) {
     return 1;
 }
 
-/* marks.csv is optional: if it can't be opened, we treat as "no marks yet" */
+/* marks.csv is optional */
 static int load_marks(ModuleList *modules, const char *path) {
     CsvFile *cf = csv_open(path);
-    if (!cf) {
-        // Optional file, not fatal.
-        return 1;
-    }
+    if (!cf) return 1;
 
     CsvRow row;
     int first = 1;
@@ -184,8 +190,6 @@ static int load_marks(ModuleList *modules, const char *path) {
         double mark = 0.0;
         if (parse_double(row.fields[2], &mark)) {
             c->mark = mark;
-        } else {
-            // blank/invalid => leave unset
         }
 
         csv_row_free(&row);
@@ -222,21 +226,84 @@ static int save_marks_csv(const ModuleList *modules, const char *path) {
     return 1;
 }
 
-/* -------------------- Progress calculations -------------------- */
+/* -------------------- Best-of-N core (optional) -------------------- */
 
-static ModuleProgress module_progress(const Module *m) {
-    ModuleProgress p = {0};
+static int cmp_desc_double(const void *a, const void *b) {
+    double da = *(const double*)a;
+    double db = *(const double*)b;
+    if (da < db) return 1;
+    if (da > db) return -1;
+    return 0;
+}
+
+/*
+S = Σ(mark * weight) over counted items
+W = Σ(weight) over marked items that count
+R = Σ(weight) over remaining items that count
+
+If group_id>0 and best_of>0, counts only top best_of marks in that group and
+treats missing slots up to best_of as remaining.
+If you never use grouping, behaves like normal weighted sums.
+*/
+static void module_sums_bestof(const Module *m, double *outS, double *outW, double *outR) {
+    double S = 0.0, W = 0.0, R = 0.0;
 
     for (size_t i = 0; i < m->component_count; i++) {
         const Component *c = &m->components[i];
-        if (c->mark >= 0.0) {
-            p.earned_points += (c->mark * c->weight) / 100.0; // points toward final
-            p.known_weight  += c->weight;
+
+        // Normal component
+        if (c->group_id == 0 || c->best_of == 0) {
+            if (c->mark >= 0.0) { S += c->mark * c->weight; W += c->weight; }
+            else { R += c->weight; }
+            continue;
+        }
+
+        // Grouped: process each group once
+        int gid = c->group_id;
+        int best_of = c->best_of;
+
+        int already_done = 0;
+        for (size_t k = 0; k < i; k++) {
+            if (m->components[k].group_id == gid && m->components[k].best_of == best_of) {
+                already_done = 1;
+                break;
+            }
+        }
+        if (already_done) continue;
+
+        double marks[256];
+        int nmarks = 0;
+        double item_weight = -1.0;
+
+        for (size_t j = 0; j < m->component_count; j++) {
+            const Component *cj = &m->components[j];
+            if (cj->group_id != gid || cj->best_of != best_of) continue;
+
+            if (item_weight < 0.0) item_weight = cj->weight;
+
+            if (cj->mark >= 0.0 && nmarks < (int)(sizeof marks / sizeof marks[0])) {
+                marks[nmarks++] = cj->mark;
+            }
+        }
+
+        if (item_weight < 0.0) continue;
+
+        qsort(marks, (size_t)nmarks, sizeof(double), cmp_desc_double);
+
+        int counted = (nmarks < best_of) ? nmarks : best_of;
+        for (int t = 0; t < counted; t++) {
+            S += marks[t] * item_weight;
+            W += item_weight;
+        }
+
+        if (counted < best_of) {
+            R += (best_of - counted) * item_weight;
         }
     }
 
-    p.remaining_weight = 100.0 - p.known_weight;
-    return p;
+    *outS = S;
+    *outW = W;
+    *outR = R;
 }
 
 /* -------------------- Reporting -------------------- */
@@ -245,69 +312,96 @@ static void print_module_stats(const Module *m, const Config *cfg) {
     const double TARGET = cfg->target;
     const double ASSUME_OTHER = cfg->assume_other;
 
-    double S = 0.0; // sum(mark * weight)
-    double W = 0.0; // sum(weight) for known marks
+    double S = 0.0, W = 0.0, R = 0.0;
+    module_sums_bestof(m, &S, &W, &R);
 
-    for (size_t i = 0; i < m->component_count; i++) {
-        const Component *c = &m->components[i];
-        if (c->mark >= 0.0) {
-            S += c->mark * c->weight;
-            W += c->weight;
-        }
-    }
-
-    // Full module title as requested
     printf("%s (%d credits)\n", m->title, m->credits);
 
     if (W > 0.0) {
-        printf("  Current average (marked work): %.2f%%\n", S / W);
+        printf("  Current average (marked work only): %.2f%%\n", S / W);
     } else {
-        printf("  Current average (marked work): (no marks yet)\n");
+        printf("  Current average (marked work only): (no marks yet)\n");
     }
 
-    double R = 100.0 - W;
+    printf("  Contribution earned so far: %.2f%% of module\n", S / 100.0);
+    printf("  Remaining weight: %.2f%%\n", R);
+
     if (R <= 0.0) {
         printf("  Final module mark: %.2f%%\n\n", S / 100.0);
         return;
     }
 
+    // If nothing marked yet, needed average is just the target.
+    if (W <= 0.0) {
+        printf("  Needed average on remaining to reach %.0f%%: %.2f%%\n\n", TARGET, TARGET);
+        return;
+    }
+
     double needed_avg = (TARGET * 100.0 - S) / R;
-    printf("  Needed average on remaining to reach %.0f%%: %.2f%%\n",
-           TARGET, needed_avg);
+    printf("  Needed average on remaining to reach %.0f%%: %.2f%%\n", TARGET, needed_avg);
 
     printf("  Remaining assessments (assuming others get %.0f%%):\n", ASSUME_OTHER);
 
-    int any_remaining = 0;
+    int printed_any = 0;
+
+    // NEW: if an item would print a negative "needed", we hide it and summarise.
+    int safe_count = 0;
+    double safe_weight = 0.0;
+
+    // If you are using grouped items (best_of), we also avoid listing them individually.
+    int grouped_remaining_count = 0;
+    double grouped_remaining_weight = 0.0;
+
     for (size_t i = 0; i < m->component_count; i++) {
         const Component *c = &m->components[i];
         if (c->mark >= 0.0) continue;
 
-        any_remaining = 1;
+        // Grouped items: don't list individually (per-item required isn't meaningful)
+        if (c->group_id != 0 && c->best_of != 0) {
+            grouped_remaining_count++;
+            grouped_remaining_weight += c->weight;
+            continue;
+        }
 
         if (c->weight <= 0.0) {
-            printf("    - %s (%.2f%%): cannot compute (weight is zero)\n",
-                   c->name, c->weight);
+            printed_any = 1;
+            printf("    - %s (%.2f%%): cannot compute (weight is zero)\n", c->name, c->weight);
             continue;
         }
 
         double other_weight = R - c->weight;
-        // Need: S + (ASSUME_OTHER * other_weight) + (x * c->weight) >= TARGET*100
-        double required =
-            (TARGET * 100.0 - S - ASSUME_OTHER * other_weight) / c->weight;
+        double required = (TARGET * 100.0 - S - ASSUME_OTHER * other_weight) / c->weight;
+
+        // If already safe, don't spam the report — summarise later.
+        if (required < 0.0) {
+            safe_count++;
+            safe_weight += c->weight;
+            continue;
+        }
+
+        printed_any = 1;
 
         if (required > 100.0) {
-            printf("    - %s (%.2f%%): need %.2f%% (impossible)\n",
-                   c->name, c->weight, required);
-        } else if (required < 0.0) {
-            printf("    - %s (%.2f%%): need %.2f%% (already safe)\n",
-                   c->name, c->weight, required);
+            printf("    - %s (%.2f%%): need %.2f%% (impossible)\n", c->name, c->weight, required);
         } else {
-            printf("    - %s (%.2f%%): need %.2f%%\n",
-                   c->name, c->weight, required);
+            printf("    - %s (%.2f%%): need %.2f%%\n", c->name, c->weight, required);
         }
     }
 
-    if (!any_remaining) {
+    // Print summaries for the skipped noise
+    if (safe_count > 0) {
+        printed_any = 1;
+        printf("    - %d remaining assessment(s) already safe (%.2f%% total)\n",
+               safe_count, safe_weight);
+    }
+
+    if (grouped_remaining_count > 0) {
+        printed_any = 1;
+        printf("    - %d remaining grouped assessment item(s) (%.2f%% total) [not listed individually]\n",
+               grouped_remaining_count, grouped_remaining_weight);
+    }
+
+    if (!printed_any) {
         printf("    (none)\n");
     }
 
@@ -315,42 +409,45 @@ static void print_module_stats(const Module *m, const Config *cfg) {
 }
 
 static void print_overall_summary(const ModuleList *modules, const Config *cfg) {
-    const double target = cfg->target; // 0..100
+    const double target = cfg->target;
 
     double total_credits = 0.0;
 
-    // Achieved so far (credit-weighted points):
-    // A = Σ credits * earned_points
-    // Remaining influence:
-    // B = Σ credits * (remaining_weight / 100)
+    // A = Σ credits * (earned contribution so far)
+    // B = Σ credits * (remaining fraction)
     double A = 0.0;
     double B = 0.0;
 
-    // For "current average on marked work"
-    double known_credit_weight = 0.0; // Σ credits * (known_weight/100)
-    double known_points = 0.0;        // Σ credits * (Σ(mark*weight)/100)
+    // Correct overall marked-work average:
+    // sum_credit_S = Σ credits * S
+    // sum_credit_W = Σ credits * W
+    double sum_credit_S = 0.0;
+    double sum_credit_W = 0.0;
 
     for (size_t i = 0; i < modules->count; i++) {
         const Module *m = &modules->items[i];
-        ModuleProgress p = module_progress(m);
-
         total_credits += m->credits;
 
-        A += m->credits * p.earned_points;
-        B += m->credits * (p.remaining_weight / 100.0);
+        double S = 0.0, W = 0.0, R = 0.0;
+        module_sums_bestof(m, &S, &W, &R);
 
-        known_credit_weight += m->credits * (p.known_weight / 100.0);
-        known_points += m->credits * p.earned_points;
+        double earned_contribution = S / 100.0; // percentage points earned so far
+
+        A += m->credits * earned_contribution;
+        B += m->credits * (R / 100.0);
+
+        sum_credit_S += m->credits * S;
+        sum_credit_W += m->credits * W;
     }
 
     printf("OVERALL (credit-weighted)\n");
     printf("  Total credits: %.0f\n", total_credits);
 
-    if (known_credit_weight > 0.0) {
-        double current_avg_marked = known_points / known_credit_weight;
-        printf("  Current average on marked work: %.2f%%\n", current_avg_marked);
+    if (sum_credit_W > 0.0) {
+        double current_avg_marked = sum_credit_S / sum_credit_W;
+        printf("  Current average on marked work (credit-weighted): %.2f%%\n", current_avg_marked);
     } else {
-        printf("  Current average on marked work: (no marks yet)\n");
+        printf("  Current average on marked work (credit-weighted): (no marks yet)\n");
     }
 
     if (B <= 0.0) {
@@ -360,7 +457,6 @@ static void print_overall_summary(const ModuleList *modules, const Config *cfg) 
     }
 
     double needed_remaining_avg = (target * total_credits - A) / B;
-
     printf("  Needed average on remaining work to reach %.0f%% overall: %.2f%%\n\n",
            target, needed_remaining_avg);
 }
@@ -396,7 +492,6 @@ static int read_int_prompt(const char *prompt, int *out) {
     return 1;
 }
 
-/* For marks: blank => clear (returns 2), number => set (returns 1), invalid => 0 */
 static int read_optional_mark(const char *prompt, double *out_mark) {
     char line[128];
     read_line(prompt, line, sizeof line);
@@ -412,7 +507,6 @@ static int read_optional_mark(const char *prompt, double *out_mark) {
     return 1;
 }
 
-/* For config values: must enter a number 0..100 (no blank) */
 static int read_double_in_range(const char *prompt, double minv, double maxv, double *out) {
     char line[128];
     read_line(prompt, line, sizeof line);
@@ -448,10 +542,10 @@ static int pick_component_index(const Module *m) {
     for (size_t i = 0; i < m->component_count; i++) {
         const Component *c = &m->components[i];
         if (c->mark >= 0.0) {
-            printf("  %zu) %s (%.2f%%)  mark=%.2f\n",
+            printf("  %zu) %s (%.3f%%)  mark=%.2f\n",
                    i + 1, c->name, c->weight, c->mark);
         } else {
-            printf("  %zu) %s (%.2f%%)  mark=(unset)\n",
+            printf("  %zu) %s (%.3f%%)  mark=(unset)\n",
                    i + 1, c->name, c->weight);
         }
     }
@@ -468,8 +562,7 @@ static int pick_component_index(const Module *m) {
 
 static void show_report(const ModuleList *modules, const Config *cfg) {
     printf("\n==== Report ====\n\n");
-    printf("Target: %.2f%% | Assume other remaining: %.2f%%\n\n",
-           cfg->target, cfg->assume_other);
+    printf("Target: %.2f%% | Assume other remaining: %.2f%%\n\n", cfg->target, cfg->assume_other);
 
     printf("Loaded %zu modules\n\n", modules->count);
 
@@ -479,8 +572,6 @@ static void show_report(const ModuleList *modules, const Config *cfg) {
 
     print_overall_summary(modules, cfg);
 }
-
-/* -------------------- Interactive editor -------------------- */
 
 static void edit_marks_menu(ModuleList *modules, Config *cfg) {
     while (1) {
@@ -578,7 +669,7 @@ int main(void) {
 
     edit_marks_menu(&modules, &cfg);
 
-    // Auto-save on exit (convenient)
+    // Auto-save on exit
     if (!save_marks_csv(&modules, "data/marks.csv")) {
         fprintf(stderr, "Warning: could not save data/marks.csv\n");
     }

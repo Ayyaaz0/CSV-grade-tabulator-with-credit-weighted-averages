@@ -1,23 +1,26 @@
-CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -Iinclude
-LDFLAGS =
+CC      := cc
+CFLAGS  := -Wall -Wextra -std=c11 -Iinclude
+LDFLAGS :=
 
-BIN = gradecalc
-SRC = src/main.c src/csv.c src/grades.c
-OBJ = $(SRC:.c=.o)
+TARGET := gradecalc
 
-all: $(BIN)
+SRCS := \
+  src/main.c \
+  src/csv.c \
+  src/grades.c \
+  src/io.c \
+  src/calc.c \
+  src/ui.c
 
-$(BIN): $(OBJ)
-	$(CC) $(OBJ) -o $@ $(LDFLAGS)
+OBJS := $(SRCS:.c=.o)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(BIN)
-
-run: $(BIN)
-	./$(BIN)
-
-.PHONY: all clean run
+	rm -f $(TARGET) $(OBJS)

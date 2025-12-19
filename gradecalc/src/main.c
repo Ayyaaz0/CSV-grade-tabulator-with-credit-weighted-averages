@@ -80,15 +80,6 @@ static int load_modules(ModuleList *modules, const char *path) {
     return 1;
 }
 
-/*
-components.csv supported formats:
-
-OLD:
-  module_id,component_name,weight
-
-NEW (optional, for best-of-N grouping):
-  module_id,component_name,weight,group_id,best_of
-*/
 static int load_components(ModuleList *modules, const char *path) {
     CsvFile *cf = csv_open(path);
     if (!cf) {

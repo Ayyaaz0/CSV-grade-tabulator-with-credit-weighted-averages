@@ -1,5 +1,5 @@
 module_id,component_name,mark
-1,Semester 1 test,53.80
+1,Semester 1 test,61.50
 1,Labs assignment,100.00
 1,Coursework PCB,
 2,OA1,100.00
@@ -10,21 +10,21 @@ module_id,component_name,mark
 2,OA6,96.47
 2,OA7,100.00
 2,OA8,90.05
-2,OA9,
-2,OA10,
-2,OA11,
-2,OA12,
-2,OA13,
-2,OA14,
-2,OA15,
-2,OA16,
+2,OA9,100.00
+2,OA10,100.00
+2,OA11,100.00
+2,OA12,100.00
+2,OA13,100.00
+2,OA14,93.75
+2,OA15,100.00
+2,OA16,96.36
 2,Group project,
 2,May test,
-3,Semester 1 test,
+3,Semester 1 test,23.00
 3,Matlab coursework,
 3,May exam,
 4,Semester 1 test,60.00
-4,Semester 2 test,
+4,Semester 2 test,76.25
 4,May exam,
 5,Semester 1 test,68.75
 5,Mini project 1,81.00
